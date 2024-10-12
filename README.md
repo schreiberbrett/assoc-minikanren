@@ -44,3 +44,8 @@ miniKanren with unification `(== u v)` and association `(assoc k v)` constraints
   ((_0 _1) ((_0 _3) (_2 _1) (_3 _2)))
   ((_0 _1) ((_0 _4) (_2 _1) (_3 _2) (_4 _3))))
 ```
+
+## TODO
+- Remove association pairs unreachable from the query variables during reification.
+- Add support for `=/=`, `absento`, `spmbolo`, `numbero`.
+- Explore negative constraints like `(not-assoco k v)` and `(not-key k)`
