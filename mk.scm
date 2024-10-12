@@ -24,13 +24,13 @@
 ;
 ; key-check: State -> Maybe State
 (define (key-check st)
-  ; First, walk the entries in the association and store them
-  ; in a vector.
+  ; First, walk* the entries in the association and store
+  ; them in a vector.
   (let* ((S (S-of st))
          (A (A-of st))
          (n (length A))
          (vect (list->vector
-                (map (λ (k/v) (walk k/v S)) A))))
+                (map (λ (k/v) (walk* k/v S)) A))))
 
 
     ; For any two walked entries (ignoring known duplicates),
