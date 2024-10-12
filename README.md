@@ -1,5 +1,5 @@
 # assoc-minikanren
-miniKanren with unification `(== u v)` and association `(assoc k v)` constraints.
+miniKanren with unification `(== u v)` and association `(assoco k v)` constraints.
 
 ```
 > (run* (a b c)
