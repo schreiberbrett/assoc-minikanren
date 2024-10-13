@@ -1,3 +1,5 @@
+#lang racket
+
 ; A variant of miniKanren which supports a new constraint:
 ;
 ; assoco - associate a key with a value.
@@ -30,7 +32,7 @@
          (A (A-of st))
          (n (length A))
          (vect (list->vector
-                (map (λ (k/v) (walk* k/v S)) A))))
+                (map (lambda (k/v) (walk* k/v S)) A))))
 
 
     ; For any two walked entries (ignoring known duplicates),
@@ -270,7 +272,7 @@
            (get-output-string op))))
 
 (define (drop-dot A)
-  (map (λ (x) `(,(car x) ,(cdr x))) A))
+  (map (lambda (x) `(,(car x) ,(cdr x))) A))
 
 
 (define (run-goal n g)
