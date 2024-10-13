@@ -47,5 +47,5 @@ miniKanren with unification `(== u v)` and association `(assoco k v)` constraint
 
 ## TODO
 - Remove association pairs unreachable from the query variables during reification.
-- Add support for `=/=`, `absento`, `spmbolo`, `numbero`.
+- Add support for `=/=`, `absento`, `symbolo`, `numbero`.
 - Explore negative constraints like `(not-assoco k v)` and `(not-key k)`
