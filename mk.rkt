@@ -5,18 +5,38 @@
 ; assoco - associate a key with a value.
 ;
 ; Similar to how classic unification either succeds once or
-; fails, assoco either succeeds once or fails the "key
-; check".
+; fails, assoco either succeeds once or fails, due to the
+; "key check".
 ;
 ; This version of miniKanren requires a state which holds a
-; substitution S and and association A.
+; substitution S, an association A, and a list of non-keys N.
 (define (assoco k v)
   (lambda (st)
     (let* ([S (S-of st)]
            [A (A-of st)]
+           [N (N-of st)]
+           [k (walk* k S)]
+           [v (walk* v S)]
            [st (key-check
-                (make-st S (cons `(,k . ,v) A)))])
+                (make-st S (cons `(,k . ,v) A) N))])
       (if st `(,st) '()))))
+
+(define (no-keyo k)
+  (lambda (st)
+    (let* ([S (S-of st)]
+           [A (A-of st)]
+           [N (N-of st)]
+           [k (walk* k S)])
+      (cond
+        ; Succeed with the original state if k is an
+        ; existing non-key.
+        [(any (lambda (k^) (equal-terms? k^ k)) N) `(,st)]
+
+        ; Fail if k is being used as a key.
+        [(any (lambda (k/v) (equal-terms? (car k/v) k)) A) '()]
+
+        ; Extend the list of non-keys otherwise.
+        [else `(,(make-st S A (cons k N)))]))))
 
 
 ; The association's only invariant is that two entries which
@@ -26,36 +46,55 @@
 ;
 ; key-check: State -> Maybe State
 (define (key-check st)
-  ; First, walk* the entries in the association and store
-  ; them in a vector.
-  (let* ((S (S-of st))
-         (A (A-of st))
-         (n (length A))
-         (vect (list->vector
-                (map (lambda (k/v) (walk* k/v S)) A))))
+  ; Use a vector for efficient random access.
+  (let* ((A (A-of st))
+         (N (N-of st))
+         (vect-A (list->vector A)))
 
-
-    ; For any two walked entries (ignoring known duplicates),
+    ; For any two entries (ignoring known duplicates),
     ; if the keys are the same, then the values must be
-    ; unified
+    ; unified.
     (let loop-i ((i 0))
-      (if (= i n)
-          st
-          (let* ((k1/v1 (vector-ref vect i))
+      (if (< i (vector-length vect-A))
+          (let* ((k1/v1 (vector-ref vect-A i))
                  (k1 (car k1/v1))
                  (v1 (cdr k1/v1)))
             (let loop-j ((j 0))
-              (if (= j i)
-                  (loop-i (+ i 1))
-                  (let* ((k2/v2 (vector-ref vect j))
+              (if (< j i)
+                  (let* ((k2/v2 (vector-ref vect-A j))
                          (k2 (car k2/v2))
                          (v2 (cdr k2/v2)))
-                    (if (and (eqv? k1 k2)
-                             (not (eqv? v1 v2)))
+                    (if (and (equal-terms? k1 k2)
+                             (not (equal-terms? v1 v2)))
                         (unify v1 v2 st)
-                        (loop-j (+ j 1)))))))))))
+                        (loop-j (+ j 1))))
+                  (loop-i (+ i 1)))))
 
+          ; Finally, fail if any key of an association entry
+          ; key is a member of the list of non-keys.
+          (if (any (lambda (k/v)
+                     (any (lambda (k)
+                            (equal-terms? k (car k/v)))
+                          N))
+                   A)
+              #f
+              st)))))
 
+; Check if two terms constructed by walk* are equal. We cannot use
+; `equal?` because variables are compared by reference, not value.
+(define (equal-terms? u v)
+  (cond ((eqv? u v) #t)
+        ((and (pair? u) (pair? v))
+         (and
+          (equal-terms? (car u) (car v))
+          (equal-terms? (cdr u) (cdr v))))
+        (else #f)))
+
+(define (any p l)
+  (cond
+    [(null? l) #f]
+    [(p (car l)) #t]
+    [else (any p (cdr l))]))
 
 ; The rest of the code is derived from "The Reasoned Schemer,
 ; 2nd Edition" found here:
@@ -79,11 +118,12 @@
 
 
 ; The state is more than just a substitution. Like in Joshi &
-; Byrd, it is a list. The car is the familiar association-list
-; substitution. The cadr is an association list from terms to
-; terms.
-(define (make-st S A)
-  `(,S ,A))
+; Byrd, it is a list containing:
+; - the substitution S
+; - the association A
+; - the list of non-keys N
+(define (make-st S A N)
+  `(,S ,A ,N))
 
 (define (S-of st)
   (car st))
@@ -91,7 +131,10 @@
 (define (A-of st)
   (cadr st))
 
-(define empty-st (make-st '() '()))
+(define (N-of st)
+  (caddr st))
+
+(define empty-st (make-st '() '() '()))
 
 
 ; Like TRS2e, use pointer comparison rather than a counter of
@@ -106,7 +149,6 @@
       (else v))))
 
 
-
 ; Extend the substitution in state. Since the state is a pair
 ; whose car is the substitution, the extended substitution is
 ; part of a new state pair.
@@ -116,12 +158,19 @@
 ; state may invalidate the association constraints. So
 ; 'key-check' is needed.
 (define (ext-s x v st)
-  (let ([S (S-of st)]
-        [A (A-of st)])
-    (cond
-      ((occurs? x v S) #f)
-      (else (key-check
-             (make-st (cons `(,x . ,v) S) A))))))
+  ; Perform the occurs check as usual and fail early.
+  (if (occurs? x v (S-of st)) #f
+
+      ; If there's no cycle in the substitution,
+      ; then extend the substitution and use it
+      ; to re-walk* both the association
+      ; and the list of non-keys.
+      (let* ((S (cons `(,x . ,v) (S-of st)))
+             (A (walk* (A-of st) S))
+             (N (walk* (N-of st) S)))
+        ; Perform the key check.
+        (key-check
+         (make-st S A N)))))
 
 
 ; The occurs check as defined in TRS2e, but missing from J&B
@@ -242,17 +291,22 @@
          (reify-S (cdr v) r)))
       (else r))))
 
+
 (define (reify v)
   (lambda (st)
-    (let ((S (S-of st))
-          (A (A-of st)))
-      (let ((v (walk* v S))
-            (A (walk* A S)))
-        (let ((r (reify-S `(,v ,A) '())))
-          (let ((v (walk* v r))
-                (A (walk* A r)))
-            `(,v ,(unique (sort (drop-dot A) lex<?)))))))))
-
+    (let* ((S (S-of st))
+           (A (A-of st))
+           (N (N-of st))
+           (v (walk* v S))
+           (A (walk* A S))
+           (N (walk* N S))
+           (r (reify-S `(,v ,A ,N) '()))
+           (v (walk* v r))
+           (A (walk* A r))
+           (N (walk* N r)))
+      (list v
+            (unique (sort (drop-dot A) lex<?))
+            (sort N lex<?)))))
 
 (define (unique sorted-lst)
   (cond
@@ -355,3 +409,14 @@
   (syntax-rules ()
     ((condu (g0 g ...) ...)
      (conda ((once g0) g ...) ...))))
+
+
+; Disequality reduces to a conjuction of associations.
+(defrel (=/= u v)
+  (fresh (x)
+    ; Use a scoped fresh variable as part of the key
+    ; to prevent unifying with any other keys.
+    (assoco `(,x ,u) #t)
+    (assoco `(,x ,v) #f)))
+
+
